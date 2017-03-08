@@ -1,7 +1,7 @@
 <?php
 
-$target_host = "www.google.com";
-$target_port = 80;
+$target_host = "127.0.0.1";
+$target_port = 9999;
 
 #create the socket
 $socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);

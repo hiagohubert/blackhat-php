@@ -19,8 +19,8 @@ while(1){
     printf("\n[*] Accepted connection from: %s:%d", $address,$port);
      
     #print out what the client sends
-    $request = socket_read($client, 1024, PHP_NORMAL_READ);
-   	
+    socket_recv($client,$request, 4096, MSG_DONTWAIT);
+    
     printf("\n[*] Received: %s \n",$request);
 
     #send back a packet
