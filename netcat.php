@@ -30,10 +30,11 @@ function client_handler($client_socket)
 {
     global $upload, $execute, $command, $upload_destination ;
 
+    # check for upload
     if (strlen($upload_destination)) {
-        echo "1";
+        # read in all of the bytes and write to our destination
         $file_buffer = "";
-
+        # keep reading data until none is available
         while (1) {
             socket_recv($client_socket, $data, 4096, MSG_DONTWAIT);
 
@@ -44,11 +45,13 @@ function client_handler($client_socket)
             }
         }
 
+        # now we take these bytes and try to write them out
         try {
             $file_descriptor = fopen($upload_destination, "wb");
             fwrite($file_descriptor, $file_buffer);
             fclose($file_descriptor);
 
+            # acknowledge that we wrote the file out
             $success_msg = "Successfully saved file to " . $upload_destination . "\r\n";
             socket_write($client_socket, $success_msg, strlen($success_msg));
         } catch (Exception $e) {
@@ -56,25 +59,28 @@ function client_handler($client_socket)
             socket_write($client_socket, $fail_msg, strlen($fail_msg));
         }
     }
-
+    # check for command execution
     if (strlen($execute)) {
-        echo "2";
+        # run the command
         $output = run_command($execute);
         socket_write($client_socket, $output, strlen($output));
     }
 
+    # now we go into another loop if a command shell was requested
     if (strlen($command)) {
-        echo "3";
         while (1) {
+            # show a simple prompt
             $test = socket_write($client_socket, "<PHPNETCAT:#> ", strlen("<PHPNETCAT:#>"));
             
+            # now we receive until we see a linefeed (enter key)
             $cmd_buffer = "";
             while (!strstr($cmd_buffer, "\n")) {
                 $client_data = socket_read($client_socket, 4096);
                 $cmd_buffer .= $client_data;
             }
+            # send back the command output
             $response = run_command($cmd_buffer);
-    
+            # send back the response
             socket_write($client_socket, $response, strlen($response));
         }
     }
@@ -82,10 +88,12 @@ function client_handler($client_socket)
 
 function run_command($command)
 {
+    # trim the newline
     $command = rtrim($command, "\n");
     $output = "";
 
     if (strlen($command)) {
+        # run the command and get the output back
         $output = shell_exec($command);
     }
 
@@ -93,7 +101,7 @@ function run_command($command)
         $output = "Failed to execute command. \r\n";
     }
     
-
+    # send the output back to the client
     return $output;
 }
 
@@ -101,19 +109,26 @@ function server_loop()
 {
     global $target, $port;
 
+    # if no target is defined, we listen on all interfaces
     if (!strlen($target)) {
         $target = "0.0.0.0";
     }
 
     $server = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
+    socket_set_option($server, SOL_SOCKET, SO_REUSEADDR, 1);
     socket_bind($server, $target, $port);
 
     socket_listen($server, 5);
+    
 
     while (1) {
-        $client_socket = socket_accept($server);
-        socket_getpeername($client_socket, $client_address, $client_port);
-        client_handler($client_socket);
+        $client_socket = @socket_accept($server);
+        if ($client_socket) {
+            socket_set_nonblock($client_socket);
+            socket_getpeername($client_socket, $client_address, $client_port);
+
+            client_handler($client_socket);
+        }
     }
 }
 
@@ -122,11 +137,14 @@ function client_sender($buffer)
     global $target, $port;
     try {
         $client = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
+        # connect to our target host
         socket_connect($client, $target, $port);
 
         if (isset($buffer)) {
             socket_write($client, $buffer);
             while (1) {
+
+                # now wait for data back
                 $recv_len = 1;
                 $response = "";
 
@@ -140,18 +158,20 @@ function client_sender($buffer)
                     }
                 }
 
-
                 echo $response;
 
+                # wait for more input
                 $buffer = fgets(STDIN);
                 $buffer .= "\n";
 
+                # send it off
                 socket_write($client, $buffer);
-                #fflush($client);
             }
         }
     } catch (Exception $e) {
         echo "[*] Exception! Exiting.\n";
+
+        # tear down the connection
         socket_close($client);
     }
 }
@@ -164,7 +184,7 @@ function main()
         usage();
     }
 
-
+    # read the commandline options
     $options = getopt("hle:t:p:cu:", ["help", "listen", "execute", "target", "port", "command", "upload"]);
 
     if (!is_array($options)) {
@@ -192,10 +212,14 @@ function main()
         }
     }
 
+    #are we going to listen or just send data from stdin?
     if (!$listen && strlen($target) && $port>0) {
         $buffer = file_get_contents("php://stdin");
         client_sender($buffer);
     }
+    /* we are going to listend and potentially
+       upload things, execute commands, and drop a shell back depending on our command line options above
+    */
 
     if ($listen) {
         server_loop();
